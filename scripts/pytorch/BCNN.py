@@ -4,13 +4,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import math
 
 class BCNN(nn.Module):
-    def __init__(self, in_channels=8, n_class=6):
+    def __init__(self, in_channels=8, n_class=5):
         super().__init__()
         self.n_class = n_class
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=True)
 
         # conv
         self.conv0_1 = Conv2DBatchNormRelu(
@@ -53,28 +53,28 @@ class BCNN(nn.Module):
         self.deconv5_1 = Conv2DBatchNormRelu(
             192, 192, kernel_size=3, stride=1, padding=1)
 
-        self.deconv4 = nn.ConvTranspose2d(
+        self.deconv4 = ConvTranspose2DBatchNormRelu(
             192, 128, kernel_size=4, stride=2, padding=1)
         self.deconv4_1 = Conv2DBatchNormRelu(
             256, 128, kernel_size=3, stride=1, padding=1)
 
-        self.deconv3 = nn.ConvTranspose2d(
+        self.deconv3 = ConvTranspose2DBatchNormRelu(
             128, 96, kernel_size=4, stride=2, padding=1)
         self.deconv3_1 = Conv2DBatchNormRelu(
             192, 96, kernel_size=3, stride=1, padding=1)
 
-        self.deconv2 = nn.ConvTranspose2d(
+        self.deconv2 = ConvTranspose2DBatchNormRelu(
             96, 64, kernel_size=4, stride=2, padding=1)
         self.deconv2_1 = Conv2DBatchNormRelu(
             128, 64, kernel_size=3, stride=1, padding=1)
 
-        self.deconv1 = nn.ConvTranspose2d(
+        self.deconv1 = ConvTranspose2DBatchNormRelu(
             64, 48, kernel_size=4, stride=2, padding=1)
         self.deconv1_1 = Conv2DBatchNormRelu(
             96, 48, kernel_size=3, stride=1, padding=1)
 
         self.deconv0 = nn.ConvTranspose2d(
-            48, n_class + 6, kernel_size=4, stride=2, padding=1)
+            48, n_class + 7, kernel_size=4, stride=2, padding=1)
 
     def forward(self, x):
         # conv
@@ -106,11 +106,24 @@ class BCNN(nn.Module):
 
         deconv0 = self.deconv0(deconv1_1)
 
+        category = torch.sigmoid(deconv0[:, 0:1, :, :])
+        instance_x = deconv0[:, 1:2, :, :]
+        instance_y = deconv0[:, 2:3, :, :]
         confidence = torch.sigmoid(deconv0[:, 3:4, :, :])
-        pred_class = F.softmax(deconv0[:, 4:10, :, :])
+        pred_class = F.softmax(deconv0[:, 4:9, :, :])
+        heading_x = deconv0[:, 9:10, :, :]
+        heading_y = deconv0[:, 10:11, :, :]
+        height = deconv0[:, 11:12, :, :]
+        # print(category)
+        # print(instance_x)
+        # print(instance_y)
+        # print(confidence)
+        # print(pred_class)
+        # print(heading)
+        # print(height)
         output = torch.cat(
-            [deconv0[:, 0:3, ...], confidence,
-             pred_class, deconv0[:, 10:, ...]], dim=1)
+            [category, instance_x, instance_y, confidence,
+             pred_class, heading_x, heading_y, height], dim=1)
 
         return output
 
@@ -123,10 +136,25 @@ class Conv2DBatchNormRelu(nn.Module):
             in_channels, out_channels,
             kernel_size, stride, padding, dilation, bias=bias)
         self.batchnorm = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
         x = self.conv(x)
+        x = self.batchnorm(x)
+        output = self.relu(x)
+        return output
+
+class ConvTranspose2DBatchNormRelu(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
+        super(ConvTranspose2DBatchNormRelu, self).__init__()
+        self.deconv = nn.ConvTranspose2d(
+            in_channels, out_channels,
+            kernel_size, stride, padding)
+        self.batchnorm = nn.BatchNorm2d(out_channels)
+        self.relu = nn.LeakyReLU(inplace=True)
+
+    def forward(self, x):
+        x = self.deconv(x)
         x = self.batchnorm(x)
         output = self.relu(x)
         return output
